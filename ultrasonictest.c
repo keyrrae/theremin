@@ -65,6 +65,16 @@ u8 ReceiveBuffer[TEST_BUFFER_SIZE];
  */
 static volatile int TotalReceivedCount;
 static volatile int TotalSentCount;
+int UartLitePolledExample(u16 DeviceId);
+void onLED(int num) {
+	XGpio_Initialize(&led, LED_DEVICE_ID);
+	XGpio_DiscreteWrite(&led, LED_CHANNEL, num);
+}
+
+void offLED() {
+    // Fill in this Function
+    XGpio_DiscreteWrite(&led, LED_CHANNEL, 0x00);
+}
 
 
 /******************************************************************************/
@@ -89,6 +99,7 @@ int main(void)
 	 */
 
 	xil_printf("hello\n");
+	//onLED(0xFF);
 
 	Status = UartLiteIntrExample(UARTLITE_DEVICE_ID);
 
@@ -105,16 +116,6 @@ int main(void)
 	return XST_SUCCESS;
 }
 
-
-void onLED(int num) {
-	XGpio_Initialize(&led, LED_DEVICE_ID);
-	XGpio_DiscreteWrite(&led, LED_CHANNEL, num);
-}
-
-void offLED() {
-    // Fill in this Function
-    XGpio_DiscreteWrite(&led, LED_CHANNEL, 0x00);
-}
 /****************************************************************************/
 /**
 *
@@ -150,6 +151,7 @@ int UartLiteIntrExample(u16 DeviceId)
 	 * Initialize the UartLite driver so that it's ready to use.
 	 */
 	Status = XUartLite_Initialize(&UartLite, DeviceId);
+	onLED(0x01);
 	if (Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
@@ -159,6 +161,7 @@ int UartLiteIntrExample(u16 DeviceId)
 	 */
 	Status = XUartLite_SelfTest(&UartLite);
 	if (Status != XST_SUCCESS) {
+
 		return XST_FAILURE;
 	}
 
@@ -185,8 +188,6 @@ int UartLiteIntrExample(u16 DeviceId)
 	 */
 	XUartLite_EnableInterrupt(&UartLite);
 
-
-
 	/*
 	 * Initialize the send buffer bytes with a pattern to send and the
 	 * the receive buffer bytes to zero to allow the receive data to be
@@ -200,32 +201,31 @@ int UartLiteIntrExample(u16 DeviceId)
 	/*
 	 * Start receiving data before sending it since there is a loopback.
 	 */
-//XUartLite_Recv(&UartLite, ReceiveBuffer, TEST_BUFFER_SIZE);
+	XUartLite_Recv(&UartLite, ReceiveBuffer, TEST_BUFFER_SIZE);
 
 	/*
 	 * Send the buffer using the UartLite.
 	 */
-//XUartLite_Send(&UartLite, SendBuffer, TEST_BUFFER_SIZE);
+	XUartLite_Send(&UartLite, SendBuffer, TEST_BUFFER_SIZE);
 
 	/*
 	 * Wait for the entire buffer to be received, letting the interrupt
 	 * processing work in the background, this function may get locked
 	 * up in this loop if the interrupts are not working correctly.
 	 */
-
-/*while ((TotalReceivedCount != TEST_BUFFER_SIZE) ||
+	while ((TotalReceivedCount != TEST_BUFFER_SIZE) ||
 		(TotalSentCount != TEST_BUFFER_SIZE)) {
 	}
-
+	onLED(0xFF);
 	/*
 	 * Verify the entire receive buffer was successfully received.
 	 */
-/*	for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
+	for (Index = 0; Index < TEST_BUFFER_SIZE; Index++) {
 		if (ReceiveBuffer[Index] != SendBuffer[Index]) {
 			return XST_FAILURE;
 		}
 	}
-*/
+
 	return XST_SUCCESS;
 }
 
@@ -363,5 +363,3 @@ int SetupInterruptSystem(XUartLite *UartLitePtr)
 
 	return XST_SUCCESS;
 }
-
-
