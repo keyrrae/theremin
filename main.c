@@ -1,37 +1,4 @@
 
-/*
- * Copyright (c) 2009-2012 Xilinx, Inc.  All rights reserved.
- *
- * Xilinx, Inc.
- * XILINX IS PROVIDING THIS DESIGN, CODE, OR INFORMATION "AS IS" AS A
- * COURTESY TO YOU.  BY PROVIDING THIS DESIGN, CODE, OR INFORMATION AS
- * ONE POSSIBLE   IMPLEMENTATION OF THIS FEATURE, APPLICATION OR
- * STANDARD, XILINX IS MAKING NO REPRESENTATION THAT THIS IMPLEMENTATION
- * IS FREE FROM ANY CLAIMS OF INFRINGEMENT, AND YOU ARE RESPONSIBLE
- * FOR OBTAINING ANY RIGHTS YOU MAY REQUIRE FOR YOUR IMPLEMENTATION.
- * XILINX EXPRESSLY DISCLAIMS ANY WARRANTY WHATSOEVER WITH RESPECT TO
- * THE ADEQUACY OF THE IMPLEMENTATION, INCLUDING BUT NOT LIMITED TO
- * ANY WARRANTIES OR REPRESENTATIONS THAT THIS IMPLEMENTATION IS FREE
- * FROM CLAIMS OF INFRINGEMENT, IMPLIED WARRANTIES OF MERCHANTABILITY
- * AND FITNESS FOR A PARTICULAR PURPOSE.
- *
- */
-
-/*
- * helloworld.c: simple test application
- *
- * This application configures UART 16550 to baud rate 9600.
- * PS7 UART (Zynq) is not initialized by this application, since
- * bootrom/bsp configures it to baud rate 115200
- *
- * ------------------------------------------------
- * | UART TYPE   BAUD RATE                        |
- * ------------------------------------------------
- *   uartns550   9600
- *   uartlite    Configurable only in HW design
- *   ps7_uart    115200 (configured by bootrom/bsp)
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -207,12 +174,12 @@ XGpio_Initialize(&led, LED_DEVICE_ID);
 initLCD();
 			clrScr();
 
-			setColor(240,240,240);
+			setColor(255, 255, 255);
 			fillRect(10, 10, 230, 310);
 
 
 			setColor(56,56,240);
-			setColorBg(240, 240, 240);
+			setColorBg(255, 255, 255);
 			setFont(BigFont);
 			lcdPrint(" Theremin", 40, 20);
 			lcdPrint(" ECE  253", 40, 40);
@@ -221,20 +188,21 @@ initLCD();
 			lcdPrint("Left Distance:", 40, 80);
 
 			setColor(56,120,180);
-			lcdPrint("mm", 80, 100);
+			lcdPrint("mm", 90, 100);
 
 			setColor(56,56,240);
 			lcdPrint("Right Distance:", 40, 120);
 
 			setColor(56,120,180);
-			lcdPrint("mm", 80, 140);
+			lcdPrint("mm", 90, 140);
 
 			setColor(56,56,240);
 			lcdPrint("Tone:", 40, 160);
 			lcdPrint("Frequency:", 40, 200);
+			lcdPrint("Volume:", 40, 240);
 
 			setColor(56,120,180);
-			lcdPrint("Hz", 100, 220);
+
 			//lcdPrint("Volume:", 40, 240);
 
 			xil_printf("lcd on\n\r");
@@ -286,7 +254,7 @@ initLCD();
 
     distance1 = XGpio_DiscreteRead(&ultra1, ULTRA1_CHANNEL);
     if (distance1 < 300)
-    	distance1 = 200;
+    	distance1 = 300;
     if (distance1 - 300 > 511)
         volume = 0;
     else
@@ -306,20 +274,47 @@ initLCD();
 
     if(count == 128){
 
-    setColor(240, 240, 240);
-	fillRect(64, 100, 72, 110 );
+    int disptmp = accu0 >> 7;
+
+    if (disptmp < 1000){
+
+    setColor(255, 255, 255);
+	fillRect(74, 100, 82, 110 );
+    }
 
 	setColor(56,120,180);
-    lcdPrint(itoa(accu0 >> 7), 40, 100);
+    lcdPrint(itoa(disptmp), 50, 100);
 
-    setColor(240, 240,240);
-    fillRect(64, 140, 72, 150 );
+    disptmp = accu1 >> 7;
+
+    if (disptmp < 1000){
+
+    setColor(255, 255, 255);
+    fillRect(74, 140, 82, 150 );
+    }
 
     setColor(56,120,180);
-    lcdPrint(itoa(accu1 >> 7), 40, 140);
+    lcdPrint(itoa(disptmp), 50, 140);
 
-    lcdPrint(tones[pitchnum], 40, 180);
-    lcdPrint(freqs[pitchnum], 40, 220);
+    disptmp = volume * 200 >> 9;
+    if (disptmp < 10){
+    setColor(255, 255, 255);
+    fillRect(57, 260, 63, 270 );
+    setColor(56,120,180);
+    }
+
+    lcdPrint(itoa(disptmp), 50, 260);
+
+    if (volume == 0){
+    	 lcdPrint("  ", 50, 180);
+    	 lcdPrint("                   ", 50, 220);
+    }
+    else{
+    	lcdPrint("Hz", 110, 220);
+    	lcdPrint(tones[pitchnum], 50, 180);
+    	lcdPrint(freqs[pitchnum], 50, 220);
+    }
+
 
     accu0 = 0;
     accu1 = 0;
