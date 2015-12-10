@@ -8,6 +8,10 @@
 #include "xspi.h"
 #include "xgpio.h"
 #include "lcd.h"
+#include "xtmrctr.h"		// Timer Drivers
+#include "xtmrctr_l.h" 		// Low-level timer drivers
+#include "xintc.h"
+#include "xil_exception.h"
 
 #define	LED_CHANNEL	1
 #define PWM_CHANNEL 1
@@ -29,6 +33,8 @@ static XGpio dc;
 static XGpio ultra0;
 static XGpio ultra1;
 static XSpi spi;
+static XTmrCtr axiTimer;
+static XIntc intc;
 
 double sin_freq;
 unsigned int pwm_freq;
@@ -60,6 +66,11 @@ unsigned int distance1;
 unsigned int accu0 = 0;
 unsigned int accu1 = 0;
 unsigned char count = 0;
+unsigned int val = 0;
+
+unsigned char R = 0;
+unsigned char B = 0;
+
 
 int tmp;
 unsigned int tmp_distance0;
@@ -89,6 +100,35 @@ char *itoa(int value)
      return &buffer[c];
  }
 void print(char *str);
+
+
+void TimerCounterHandler(void *CallbackRef) {
+	XIntc_Disable(&intc, XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_1_INTERRUPT_INTR);
+    distance0 = XGpio_DiscreteRead(&ultra0, ULTRA0_CHANNEL);
+
+    if(distance0 < 300)
+    	distance0 = 300;
+    tmp = (distance0 - 300) >> 5;
+
+    if (tmp > 16)
+        pitchnum = 16;
+    else
+        pitchnum = tmp;
+    XGpio_DiscreteWrite(&pwm, PWM_CHANNEL, tuningWord[pitchnum]);
+    //t = (unsigned int)(pow(2,32)*(1046 * (distance0-299)) / (double)pwm_freq);
+
+    distance1 = XGpio_DiscreteRead(&ultra1, ULTRA1_CHANNEL);
+    if (distance1 < 300)
+    	distance1 = 300;
+    if (distance1 - 300 > 511)
+        volume = 0;
+    else
+        volume = (511 - (distance1 - 300))>>1;
+    XGpio_DiscreteWrite(&scale, SCALE_CHANNEL, volume);
+	val++;
+	XIntc_Enable(&intc, XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_1_INTERRUPT_INTR);
+}
+
 
 int main()
 {
@@ -172,36 +212,21 @@ XGpio_Initialize(&led, LED_DEVICE_ID);
 
 
 initLCD();
-			clrScr();
-
-			setColor(255, 255, 255);
+clrScr();
+setColor(180, 180, 180);
+			fillRect(0, 0, 239, 319);
+setColor(255, 255, 255);
 			fillRect(10, 10, 230, 310);
 
 
 			setColor(56,56,240);
 			setColorBg(255, 255, 255);
-			setFont(BigFont);
-			lcdPrint(" Theremin", 40, 20);
-			lcdPrint(" ECE  253", 40, 40);
 
-			setFont(SmallFont);
-			lcdPrint("Left Distance:", 40, 80);
 
-			setColor(56,120,180);
-			lcdPrint("mm", 90, 100);
 
-			setColor(56,56,240);
-			lcdPrint("Right Distance:", 40, 120);
 
-			setColor(56,120,180);
-			lcdPrint("mm", 90, 140);
 
-			setColor(56,56,240);
-			lcdPrint("Tone:", 40, 160);
-			lcdPrint("Frequency:", 40, 200);
-			lcdPrint("Volume:", 40, 240);
 
-			setColor(56,120,180);
 
 			//lcdPrint("Volume:", 40, 240);
 
@@ -238,28 +263,95 @@ initLCD();
     //onLED((1<<13)|distance0);
     onLED(0x3FFF);
 
+    status = XTmrCtr_Initialize(&axiTimer, XPAR_AXI_TIMER_1_DEVICE_ID);
+    		if (status != XST_SUCCESS) {
+    			xil_printf("Initialize timer fail!\n");
+    			return XST_FAILURE;
+    		}
+
+    		status = XIntc_Initialize(&intc, XPAR_INTC_0_DEVICE_ID);
+    		if (status != XST_SUCCESS) {
+    			xil_printf("Initialize interrupt controller fail!\n");
+    			return XST_FAILURE;
+    		}
+
+    		status = XIntc_Connect(&intc,
+    					XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_1_INTERRUPT_INTR,
+    					(XInterruptHandler)XTmrCtr_InterruptHandler,
+    					(void *)&axiTimer);
+    		if (status != XST_SUCCESS) {
+    			xil_printf("Connect IHR fail!\n");
+    			return XST_FAILURE;
+    		}
+
+    		status = XIntc_Start(&intc, XIN_REAL_MODE);
+    		if (status != XST_SUCCESS) {
+    			xil_printf("Start interrupt controller fail!\n");
+    			return XST_FAILURE;
+    		}
+
+    		// Enable interrupt
+    		XIntc_Enable(&intc, XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_1_INTERRUPT_INTR);
+
+
+    		/*
+    		 * Setup the handler for the timer counter that will be called from the
+    		 * interrupt context when the timer expires, specify a pointer to the
+    		 * timer counter driver instance as the callback reference so the handler
+    		 * is able to access the instance data
+    		 */
+    		XTmrCtr_SetHandler(&axiTimer, TimerCounterHandler, &axiTimer);
+
+    		/*
+    		 * Enable the interrupt of the timer counter so interrupts will occur
+    		 * and use auto reload mode such that the timer counter will reload
+    		 * itself automatically and continue repeatedly, without this option
+    		 * it would expire once only
+    		 */
+    		XTmrCtr_SetOptions(&axiTimer, 0,
+    					XTC_INT_MODE_OPTION | XTC_AUTO_RELOAD_OPTION);
+
+    		/*
+    		 * Set a reset value for the timer counter such that it will expire
+    		 * eariler than letting it roll over from 0, the reset value is loaded
+    		 * into the timer counter when it is started
+    		 */
+    		XTmrCtr_SetResetValue(&axiTimer, 0, 0xFFFF0000);
+
+    		XTmrCtr_Start(&axiTimer, 0);
+    				xil_printf("Timer start!!\n");
+
+    				microblaze_enable_interrupts();
+
     while(1){
-    distance0 = XGpio_DiscreteRead(&ultra0, ULTRA0_CHANNEL);
 
-    if(distance0 < 300)
-    	distance0 = 300;
-    tmp = (distance0 - 300) >> 5;
 
-    if (tmp > 16)
-        pitchnum = 16;
-    else
-        pitchnum = tmp;
-    XGpio_DiscreteWrite(&pwm, PWM_CHANNEL, tuningWord[pitchnum]);
-    //t = (unsigned int)(pow(2,32)*(1046 * (distance0-299)) / (double)pwm_freq);
+//    distance0 = XGpio_DiscreteRead(&ultra0, ULTRA0_CHANNEL);
+//
+//    if(distance0 < 300)
+//    	distance0 = 300;
+//    tmp = (distance0 - 300) >> 5;
+//
+//    if (tmp > 16)
+//        pitchnum = 16;
+//    else
+//        pitchnum = tmp;
+//    XGpio_DiscreteWrite(&pwm, PWM_CHANNEL, tuningWord[pitchnum]);
+//    //t = (unsigned int)(pow(2,32)*(1046 * (distance0-299)) / (double)pwm_freq);
+//
+//    distance1 = XGpio_DiscreteRead(&ultra1, ULTRA1_CHANNEL);
+//    if (distance1 < 300)
+//    	distance1 = 300;
+//    if (distance1 - 300 > 511)
+//        volume = 0;
+//    else
+//        volume = (511 - (distance1 - 300))>>1;
+//    XGpio_DiscreteWrite(&scale, SCALE_CHANNEL, volume);
 
-    distance1 = XGpio_DiscreteRead(&ultra1, ULTRA1_CHANNEL);
-    if (distance1 < 300)
-    	distance1 = 300;
-    if (distance1 - 300 > 511)
-        volume = 0;
-    else
-        volume = (511 - (distance1 - 300))>>1;
-    XGpio_DiscreteWrite(&scale, SCALE_CHANNEL, volume);
+
+
+
+
     //xil_printf("t %d\n\r", t);
 /*
     if (volume > 200)
@@ -272,53 +364,97 @@ initLCD();
 
     //XGpio_DiscreteWrite(&pwm, PWM_CHANNEL, t);
 
+        R = (distance0 - 300);
+
+        if (R>255)
+        	R=255;
+        R = 255 - R;
+
+        B = (distance1 - 300);
+
+        if (B>255)
+        	B=255;
+        B = 255 - B;
+
+
+
+
     if(count == 128){
+
+		setColor(R,127,B);
+				setFont(BigFont);
+				lcdPrint(" Theremin", 40, 15);
+
+				setFont(SmallFont);
+
+		    	lcdPrint("ECE 253", 95, 35);
+
+		    	lcdPrint("Left : pitch  control", 40, 55);
+		    	lcdPrint("Right: volume control", 40, 70);
+
+
+
+		lcdPrint("Left Distance:", 40, 100);
+
+
+		lcdPrint("Right Distance:", 40, 140);
+
+		lcdPrint("Tone:", 40, 180);
+		lcdPrint("Frequency:", 40, 220);
+		lcdPrint("Volume:", 40, 260);
+
 
     int disptmp = accu0 >> 7;
 
     if (disptmp < 1000){
 
     setColor(255, 255, 255);
-	fillRect(74, 100, 82, 110 );
+	fillRect(74, 120, 82, 130 );
     }
 
-	setColor(56,120,180);
-    lcdPrint(itoa(disptmp), 50, 100);
+    setColor(R,127,B);
+    lcdPrint(itoa(disptmp), 50, 120);
+	setColor(R,127,B);
+	lcdPrint("mm", 85, 120);
 
     disptmp = accu1 >> 7;
 
     if (disptmp < 1000){
 
     setColor(255, 255, 255);
-    fillRect(74, 140, 82, 150 );
+    fillRect(74, 160, 82, 170 );
     }
 
-    setColor(56,120,180);
-    lcdPrint(itoa(disptmp), 50, 140);
+    setColor(R,127,B);
+    lcdPrint(itoa(disptmp), 50, 160);
+
+	setColor(R,127,B);
+	lcdPrint("mm", 85, 160);
 
     disptmp = volume * 200 >> 9;
     if (disptmp < 10){
     setColor(255, 255, 255);
-    fillRect(57, 260, 63, 270 );
-    setColor(56,120,180);
+    fillRect(57, 280, 63, 290 );
+    setColor(R,127,B);
     }
 
-    lcdPrint(itoa(disptmp), 50, 260);
+    lcdPrint(itoa(disptmp), 50, 280);
 
     if (volume == 0){
-    	 lcdPrint("  ", 50, 180);
-    	 lcdPrint("                   ", 50, 220);
+    	 lcdPrint("  ", 50, 200);
+    	 lcdPrint("                   ", 50, 240);
     }
     else{
-    	lcdPrint("Hz", 110, 220);
-    	lcdPrint(tones[pitchnum], 50, 180);
-    	lcdPrint(freqs[pitchnum], 50, 220);
+    	lcdPrint("Hz", 100, 240);
+    	lcdPrint(tones[pitchnum], 50, 200);
+    	lcdPrint(freqs[pitchnum], 50, 240);
     }
 
 
     accu0 = 0;
     accu1 = 0;
     count = 0;
+    //onLED((1<<13)|val);
     onLED((1<<13)|distance0);
     //for (i=0;i <100000;i++);
     }
